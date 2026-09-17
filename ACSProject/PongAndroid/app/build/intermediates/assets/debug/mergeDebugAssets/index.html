@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>3D Touch Pong</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #000;
+      font-family: monospace;
+      touch-action: none; /* Prevents mobile browser pull-to-refresh */
+    }
+    #score {
+      position: absolute;
+      top: 20px;
+      width: 100%;
+      text-align: center;
+      color: #fff;
+      font-size: 32px;
+      user-select: none;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="score">0 : 0</div>
+
+  <script src="three.min.js"></script>
+  <script>
+    // Scene setup
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Arena Dimensions
+    const arenaWidth = 30;
+    const arenaHeight = 18;
+
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+    scene.add(ambientLight);
+    const pointLight = new THREE.PointLight(0xffffff, 1, 100);
+    pointLight.position.set(0, 0, 15);
+    scene.add(pointLight);
+
+    // Geometries & Materials
+    const wallMaterial = new THREE.MeshPhongMaterial({ color: 0x444444 });
+    const paddleMaterial = new THREE.MeshPhongMaterial({ color: 0x00ffcc });
+    const ballMaterial = new THREE.MeshPhongMaterial({ color: 0xff0055 });
+
+    // Top and Bottom Walls
+    const wallGeometry = new THREE.BoxGeometry(arenaWidth, 0.5, 1);
+    const topWall = new THREE.Mesh(wallGeometry, wallMaterial);
+    topWall.position.y = arenaHeight / 2;
+    scene.add(topWall);
+
+    const bottomWall = new THREE.Mesh(wallGeometry, wallMaterial);
+    bottomWall.position.y = -arenaHeight / 2;
+    scene.add(bottomWall);
+
+    // Paddles
+    const paddleGeometry = new THREE.BoxGeometry(0.6, 3.5, 1);
+    const leftPaddle = new THREE.Mesh(paddleGeometry, paddleMaterial);
+    leftPaddle.position.x = -arenaWidth / 2 + 1;
+    scene.add(leftPaddle);
+
+    const rightPaddle = new THREE.Mesh(paddleGeometry, paddleMaterial);
+    rightPaddle.position.x = arenaWidth / 2 - 1;
+    scene.add(rightPaddle);
+
+    // Ball
+    const ballGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+    const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+    scene.add(ball);
+
+    // Camera Positioning
+    camera.position.set(0, 0, 22);
+
+    // Game State
+    let scoreLeft = 0;
+    let scoreRight = 0;
+    const ballSpeed = 0.25;
+    let ballDX = ballSpeed;
+    let ballDY = 0;
+
+    const paddleLimit = (arenaHeight / 2) - 2;
+
+    function resetBall() {
+      ball.position.set(0, 0, 0);
+      ballDX = ballSpeed * (Math.random() > 0.5 ? 1 : -1);
+      ballDY = ballSpeed * (Math.random() * 0.8 - 0.4);
+    }
+
+    function updateScores() {
+      document.getElementById('score').innerText = `${scoreLeft} : ${scoreRight}`;
+    }
+
+    // Direct Touch 1:1 Movement Mapping
+    function handleTouch(clientY) {
+      // Map screen Y coordinates directly to 3D scene Y units
+      const normalizedY = 1 - (clientY / window.innerHeight); // Convert to 0 -> 1 (bottom -> top)
+      let targetY = (normalizedY * arenaHeight) - (arenaHeight / 2); // Map to 3D space (-9 to +9)
+
+      // Clamp paddle inside upper and lower bounds
+      leftPaddle.position.y = Math.max(-paddleLimit, Math.min(paddleLimit, targetY));
+    }
+
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length > 0) handleTouch(e.touches[0].clientY);
+    });
+
+    window.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 0) {
+        handleTouch(e.touches[0].clientY);
+      }
+    });
+
+    // Fallback Mouse Drag support for desktop testing
+    let isDragging = false;
+    window.addEventListener('mousedown', (e) => { isDragging = true; handleTouch(e.clientY); });
+    window.addEventListener('mousemove', (e) => { if (isDragging) handleTouch(e.clientY); });
+    window.addEventListener('mouseup', () => { isDragging = false; });
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Simple AI Opponent for Right Paddle
+      const aiSpeed = 0.18;
+      if (ball.position.y > rightPaddle.position.y + 0.5) {
+        rightPaddle.position.y += aiSpeed;
+      } else if (ball.position.y < rightPaddle.position.y - 0.5) {
+        rightPaddle.position.y -= aiSpeed;
+      }
+      rightPaddle.position.y = Math.max(-paddleLimit, Math.min(paddleLimit, rightPaddle.position.y));
+
+      // Move Ball
+      ball.position.x += ballDX;
+      ball.position.y += ballDY;
+
+      // Wall Bounce
+      const ballTopLimit = (arenaHeight / 2) - 0.6;
+      if (ball.position.y >= ballTopLimit || ball.position.y <= -ballTopLimit) {
+        ballDY *= -1;
+      }
+
+      // Left Paddle Collision (Player)
+      if (
+        ball.position.x <= leftPaddle.position.x + 0.7 &&
+        ball.position.x >= leftPaddle.position.x - 0.7 &&
+        Math.abs(ball.position.y - leftPaddle.position.y) < 2.0
+      ) {
+        ballDX = Math.abs(ballDX);
+        ballDY += (ball.position.y - leftPaddle.position.y) * 0.08;
+      }
+
+      // Right Paddle Collision (AI)
+      if (
+        ball.position.x >= rightPaddle.position.x - 0.7 &&
+        ball.position.x <= rightPaddle.position.x + 0.7 &&
+        Math.abs(ball.position.y - rightPaddle.position.y) < 2.0
+      ) {
+        ballDX = -Math.abs(ballDX);
+        ballDY += (ball.position.y - rightPaddle.position.y) * 0.08;
+      }
+
+      // Scoring
+      if (ball.position.x > arenaWidth / 2) {
+        scoreLeft++;
+        updateScores();
+        resetBall();
+      } else if (ball.position.x < -arenaWidth / 2) {
+        scoreRight++;
+        updateScores();
+        resetBall();
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // Responsive Resizing
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    resetBall();
+    animate();
+  </script>
+</body>
+</html>
